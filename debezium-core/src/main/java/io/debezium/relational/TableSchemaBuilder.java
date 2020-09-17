@@ -238,9 +238,7 @@ public class TableSchemaBuilder {
     protected Function<Object[], Struct> createValueGenerator(Schema schema, TableId tableId, List<Column> columns,
                                                               ColumnNameFilter filter, ColumnMappers mappers) {
         if (schema != null) {
-            List<Column> columnsThatShouldBeAdded = columns.stream()
-                    .filter(column -> filter == null || filter.matches(tableId.catalog(), tableId.schema(), tableId.table(), column.name()))
-                    .collect(Collectors.toList());
+            List<Column> columnsThatShouldBeAdded = filterColumns(tableId, columns, filter);
             int[] recordIndexes = indexesForColumns(columnsThatShouldBeAdded);
             Field[] fields = fieldsForColumns(schema, columnsThatShouldBeAdded);
             int numFields = recordIndexes.length;
@@ -281,6 +279,16 @@ public class TableSchemaBuilder {
             };
         }
         return null;
+    }
+
+    // TODO Create hook and overrride for sql server to filter out columns not included in the cdc tables.
+    // TODO Is this even possible? Might require a more intensive rework.
+    // TODO An alternative is to have this class trust what is passed in to be the correct index, but that requires updating the converters array.
+    // TODO Another alternative is to pass more information like the full result set to the generator functions so they can do the indexing here.
+    protected List<Column> filterColumns(TableId tableId, List<Column> columns, ColumnNameFilter filter) {
+        return columns.stream()
+            .filter(column -> filter == null || filter.matches(tableId.catalog(), tableId.schema(), tableId.table(), column.name()))
+            .collect(Collectors.toList());
     }
 
     protected int[] indexesForColumns(List<Column> columns) {

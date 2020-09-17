@@ -8,16 +8,11 @@ package io.debezium.connector.sqlserver;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 
 import io.debezium.jdbc.JdbcConnection.ResultSetMapper;
 import io.debezium.pipeline.source.spi.ChangeTableResultSet;
-import io.debezium.relational.Column;
 import io.debezium.relational.Table;
+import io.debezium.relational.mapping.CorrectedColumnsResultsSetMapper;
 
 /**
  * The logical representation of a position for the change in the transaction log.
@@ -48,7 +43,6 @@ public class SqlServerChangeTablePointer extends ChangeTableResultSet<SqlServerC
     public SqlServerChangeTablePointer(SqlServerChangeTable changeTable, ResultSet resultSet, int columnDataOffset) {
         super(changeTable, resultSet, columnDataOffset);
         // Store references to these because we can't get them from our superclass
-        // this.changeTable = changeTable;
         this.resultSet = resultSet;
         this.columnDataOffset = columnDataOffset;
     }
@@ -101,62 +95,7 @@ public class SqlServerChangeTablePointer extends ChangeTableResultSet<SqlServerC
      * @return a mapper which adjusts order of values in case the capture instance contains only
      * a subset of columns
      */
-    private ResultSetMapper<Object[]> createResultSetMapper(Table table) throws SQLException {
-        final List<String> sourceTableColumns = table.columns()
-                .stream()
-                .map(Column::name)
-                .collect(Collectors.toList());
-        final List<String> resultColumns = getResultColumnNames();
-        final int sourceColumnCount = sourceTableColumns.size();
-        final int resultColumnCount = resultColumns.size();
-
-        if (sourceTableColumns.equals(resultColumns)) {
-            return resultSet -> {
-                final Object[] data = new Object[sourceColumnCount];
-                for (int i = 0; i < sourceColumnCount; i++) {
-                    data[i] = getColumnData(resultSet, columnDataOffset + i);
-                }
-                return data;
-            };
-        }
-        else {
-            final IndicesMapping indicesMapping = new IndicesMapping(sourceTableColumns, resultColumns);
-            return resultSet -> {
-                final Object[] data = new Object[sourceColumnCount];
-                for (int i = 0; i < resultColumnCount; i++) {
-                    int index = indicesMapping.getSourceTableColumnIndex(i);
-                    data[index] = getColumnData(resultSet, columnDataOffset + i);
-                }
-                return data;
-            };
-        }
+    private ResultSetMapper<Object[]> createResultSetMapper(Table table) {
+        return new CorrectedColumnsResultsSetMapper(table, columnDataOffset);
     }
-
-    private List<String> getResultColumnNames() throws SQLException {
-        final int columnCount = resultSet.getMetaData().getColumnCount() - (columnDataOffset - 1);
-        final List<String> columns = new ArrayList<>(columnCount);
-        for (int i = 0; i < columnCount; ++i) {
-            columns.add(resultSet.getMetaData().getColumnName(columnDataOffset + i));
-        }
-        return columns;
-    }
-
-    private class IndicesMapping {
-
-        private final Map<Integer, Integer> mapping;
-
-        IndicesMapping(List<String> sourceTableColumns, List<String> captureInstanceColumns) {
-            this.mapping = new HashMap<>(sourceTableColumns.size(), 1.0F);
-
-            for (int i = 0; i < captureInstanceColumns.size(); ++i) {
-                mapping.put(i, sourceTableColumns.indexOf(captureInstanceColumns.get(i)));
-            }
-
-        }
-
-        int getSourceTableColumnIndex(int resultCaptureInstanceColumnIndex) {
-            return mapping.get(resultCaptureInstanceColumnIndex);
-        }
-    }
-
 }

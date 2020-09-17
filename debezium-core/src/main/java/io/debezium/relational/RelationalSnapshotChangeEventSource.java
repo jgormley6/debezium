@@ -35,6 +35,7 @@ import io.debezium.pipeline.source.spi.StreamingChangeEventSource;
 import io.debezium.pipeline.spi.ChangeRecordEmitter;
 import io.debezium.pipeline.spi.OffsetContext;
 import io.debezium.pipeline.spi.SnapshotResult;
+import io.debezium.relational.mapping.CorrectedColumnsResultsSetMapper;
 import io.debezium.schema.SchemaChangeEvent;
 import io.debezium.util.Clock;
 import io.debezium.util.Strings;
@@ -324,6 +325,16 @@ public abstract class RelationalSnapshotChangeEventSource extends AbstractSnapsh
             Timer logTimer = getTableScanLogTimer();
             snapshotContext.lastRecordInTable = false;
 
+            // TODO Change to getter method so that it can be extended? Default to original code maybe?
+            /*
+            final int numColumns = table.columns().size();
+            final Object[] row = new Object[numColumns];
+            for (int i = 0; i < numColumns; i++) {
+                row[i] = getColumnValue(rs, i + 1, columns[i]);
+            }
+             */
+            JdbcConnection.ResultSetMapper<Object[]> resultSetMapper = new CorrectedColumnsResultsSetMapper(table);
+
             if (rs.next()) {
                 while (!snapshotContext.lastRecordInTable) {
                     if (!sourceContext.isRunning()) {
@@ -331,10 +342,7 @@ public abstract class RelationalSnapshotChangeEventSource extends AbstractSnapsh
                     }
 
                     rows++;
-                    final Object[] row = new Object[numColumns];
-                    for (int i = 0; i < numColumns; i++) {
-                        row[i] = getColumnValue(rs, i + 1, columns[i]);
-                    }
+                    final Object[] row = resultSetMapper.apply(rs);
 
                     snapshotContext.lastRecordInTable = !rs.next();
                     if (logTimer.expired()) {

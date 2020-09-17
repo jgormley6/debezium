@@ -5,8 +5,11 @@
  */
 package io.debezium.connector.sqlserver;
 
+import java.util.Arrays;
+import java.util.List;
+import java.util.Optional;
+
 import io.debezium.relational.ChangeTable;
-import io.debezium.relational.Table;
 import io.debezium.relational.TableId;
 
 /**
@@ -32,18 +35,22 @@ public class SqlServerChangeTable extends ChangeTable {
     private Lsn stopLsn;
 
     /**
-     * The table from which the changes are captured
+     * List of columns that are included in the captured_column_list
      */
-    private Table sourceTable;
+    private List<String> capturedColumnList;
 
-    public SqlServerChangeTable(TableId sourceTableId, String captureInstance, int changeTableObjectId, Lsn startLsn, Lsn stopLsn) {
+
+    public SqlServerChangeTable(TableId sourceTableId, String captureInstance, int changeTableObjectId,
+                                Lsn startLsn, Lsn stopLsn, String capturedColumnListString) {
         super(captureInstance, sourceTableId, resolveChangeTableId(sourceTableId, captureInstance), changeTableObjectId);
         this.startLsn = startLsn;
         this.stopLsn = stopLsn;
+        this.capturedColumnList = Arrays.asList(Optional.ofNullable(capturedColumnListString).orElse("")
+            .replaceAll("[\\[\\]]", "").split(", "));
     }
 
     public SqlServerChangeTable(String captureInstance, int changeTableObjectId, Lsn startLsn, Lsn stopLsn) {
-        this(null, captureInstance, changeTableObjectId, startLsn, stopLsn);
+        this(null, captureInstance, changeTableObjectId, startLsn, stopLsn, null);
     }
 
     public Lsn getStartLsn() {
@@ -58,12 +65,8 @@ public class SqlServerChangeTable extends ChangeTable {
         this.stopLsn = stopLsn;
     }
 
-    public Table getSourceTable() {
-        return sourceTable;
-    }
-
-    public void setSourceTable(Table sourceTable) {
-        this.sourceTable = sourceTable;
+    public List<String> getCapturedColumnList() {
+        return capturedColumnList;
     }
 
     @Override

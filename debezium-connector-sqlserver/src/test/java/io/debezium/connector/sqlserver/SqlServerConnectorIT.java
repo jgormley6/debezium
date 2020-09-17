@@ -1353,6 +1353,163 @@ public class SqlServerConnectorIT extends AbstractConnectorTest {
     }
 
     @Test
+    @FixFor("DBZ-2495")
+    public void whenCaptureInstanceExcludesColumnsExpectSnapshotAndStreamingToExcludeColumns() throws Exception {
+        connection.execute(
+            "CREATE TABLE excluded_column_table_a (id int, name varchar(30), amount integer primary key(id))");
+        TestHelper.enableTableCdc(connection, "excluded_column_table_a", "dbo_excluded_column_table_a",
+            Arrays.asList("id", "name"));
+
+        connection.execute("INSERT INTO excluded_column_table_a VALUES(10, 'a name', 100)");
+
+        final Configuration config = TestHelper.defaultConfig()
+            .build();
+
+        start(SqlServerConnector.class, config);
+        assertConnectorIsRunning();
+        waitForSnapshotToBeCompleted("sql_server", "server1");
+
+        connection.execute("INSERT INTO excluded_column_table_a VALUES(11, 'some_name', 120)");
+
+        final SourceRecords records = consumeRecordsByTopic(3);
+        final List<SourceRecord> tableA = records.recordsForTopic("server1.dbo.excluded_column_table_a");
+
+        Schema expectedSchemaA = SchemaBuilder.struct()
+            .optional()
+            .name("server1.dbo.excluded_column_table_a.Value")
+            .field("id", Schema.INT32_SCHEMA)
+            .field("name", Schema.OPTIONAL_STRING_SCHEMA)
+            .build();
+        Struct expectedValueSnapshot = new Struct(expectedSchemaA)
+            .put("id", 10)
+            .put("name", "a name");
+        Struct expectedValueStreaming = new Struct(expectedSchemaA)
+            .put("id", 11)
+            .put("name", "some_name");
+
+        Assertions.assertThat(tableA).hasSize(2);
+        SourceRecordAssert.assertThat(tableA.get(0))
+            .valueAfterFieldSchemaIsEqualTo(expectedSchemaA)
+            .valueAfterFieldIsEqualTo(expectedValueSnapshot);
+        SourceRecordAssert.assertThat(tableA.get(1))
+            .valueAfterFieldSchemaIsEqualTo(expectedSchemaA)
+            .valueAfterFieldIsEqualTo(expectedValueStreaming);
+
+        stopConnector();
+    }
+
+    @Test
+    @FixFor("DBZ-2495")
+    public void whenMultipleCaptureInstancesExcludesColumnsExpectLatestCDCTableUtilized() throws Exception {
+        connection.execute(
+            "CREATE TABLE excluded_column_table_a (id int, name varchar(30), amount integer primary key(id))");
+        TestHelper.enableTableCdc(connection, "excluded_column_table_a", "dbo_excluded_column_table_a",
+            Arrays.asList("id", "name"));
+
+        connection.execute("INSERT INTO excluded_column_table_a VALUES(10, 'a name', 100)");
+        connection.execute("ALTER TABLE excluded_column_table_a ADD note varchar(30)");
+        TestHelper.enableTableCdc(connection, "excluded_column_table_a", "dbo_excluded_column_table_a_2",
+            Arrays.asList("id", "name", "note"));
+
+        final Configuration config = TestHelper.defaultConfig()
+            .build();
+
+        start(SqlServerConnector.class, config);
+        assertConnectorIsRunning();
+        waitForSnapshotToBeCompleted("sql_server", "server1");
+
+        connection.execute("INSERT INTO excluded_column_table_a VALUES(11, 'some_name', 120, 'a note')");
+
+        final SourceRecords records = consumeRecordsByTopic(3);
+        final List<SourceRecord> tableA = records.recordsForTopic("server1.dbo.excluded_column_table_a");
+
+        Schema expectedSchema = SchemaBuilder.struct()
+            .optional()
+            .name("server1.dbo.excluded_column_table_a.Value")
+            .field("id", Schema.INT32_SCHEMA)
+            .field("name", Schema.OPTIONAL_STRING_SCHEMA)
+            .field("note", Schema.OPTIONAL_STRING_SCHEMA)
+            .build();
+        Struct expectedValueSnapshot = new Struct(expectedSchema)
+            .put("id", 10)
+            .put("name", "a name")
+            .put("note", null);
+
+        Struct expectedValueStreaming = new Struct(expectedSchema)
+            .put("id", 11)
+            .put("name", "some_name")
+            .put("note", "a note");
+
+        Assertions.assertThat(tableA).hasSize(2);
+        SourceRecordAssert.assertThat(tableA.get(0))
+            .valueAfterFieldSchemaIsEqualTo(expectedSchema)
+            .valueAfterFieldIsEqualTo(expectedValueSnapshot);
+        SourceRecordAssert.assertThat(tableA.get(1))
+            .valueAfterFieldSchemaIsEqualTo(expectedSchema)
+            .valueAfterFieldIsEqualTo(expectedValueStreaming);
+
+        stopConnector();
+    }
+
+
+    @Test
+    @FixFor("DBZ-2495")
+    public void whenCaptureInstanceExcludesColumnsAndColumnsRenamedExpectNoErrors() throws Exception {
+        connection.execute(
+            "CREATE TABLE excluded_column_table_a (id int, name varchar(30), amount integer primary key(id))");
+        TestHelper.enableTableCdc(connection, "excluded_column_table_a", "dbo_excluded_column_table_a",
+            Arrays.asList("id", "name"));
+
+        connection.execute("INSERT INTO excluded_column_table_a VALUES(10, 'a name', 100)");
+
+        final Configuration config = TestHelper.defaultConfig()
+            .build();
+
+        start(SqlServerConnector.class, config);
+        assertConnectorIsRunning();
+        waitForSnapshotToBeCompleted("sql_server", "server1");
+
+        TestHelper.disableTableCdc(connection, "excluded_column_table_a");
+        connection.execute("EXEC sp_RENAME 'excluded_column_table_a.name', 'first_name', 'COLUMN'");
+        TestHelper.enableTableCdc(connection, "excluded_column_table_a", "dbo_excluded_column_table_a",
+            Arrays.asList("id", "first_name"));
+
+        connection.execute("INSERT INTO excluded_column_table_a VALUES(11, 'some_name', 120)");
+
+        final SourceRecords records = consumeRecordsByTopic(3);
+        final List<SourceRecord> tableA = records.recordsForTopic("server1.dbo.excluded_column_table_a");
+
+        Schema expectedSchema1 = SchemaBuilder.struct()
+            .optional()
+            .name("server1.dbo.excluded_column_table_a.Value")
+            .field("id", Schema.INT32_SCHEMA)
+            .field("name", Schema.OPTIONAL_STRING_SCHEMA)
+            .build();
+        Struct expectedValueSnapshot = new Struct(expectedSchema1)
+            .put("id", 10)
+            .put("name", "a name");
+        Schema expectedSchema2 = SchemaBuilder.struct()
+            .optional()
+            .name("server1.dbo.excluded_column_table_a.Value")
+            .field("id", Schema.INT32_SCHEMA)
+            .field("first_name", Schema.OPTIONAL_STRING_SCHEMA)
+            .build();
+        Struct expectedValueStreaming = new Struct(expectedSchema2)
+            .put("id", 11)
+            .put("first_name", "some_name");
+
+        Assertions.assertThat(tableA).hasSize(2);
+        SourceRecordAssert.assertThat(tableA.get(0))
+            .valueAfterFieldSchemaIsEqualTo(expectedSchema1)
+            .valueAfterFieldIsEqualTo(expectedValueSnapshot);
+        SourceRecordAssert.assertThat(tableA.get(1))
+            .valueAfterFieldSchemaIsEqualTo(expectedSchema2)
+            .valueAfterFieldIsEqualTo(expectedValueStreaming);
+
+        stopConnector();
+    }
+
+    @Test
     @FixFor("DBZ-2522")
     public void excludeColumnWhenCaptureInstanceExcludesColumnInMiddleOfTable() throws Exception {
         connection.execute(

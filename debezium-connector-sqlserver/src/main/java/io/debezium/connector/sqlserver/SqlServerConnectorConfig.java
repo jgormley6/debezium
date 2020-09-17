@@ -5,6 +5,9 @@
  */
 package io.debezium.connector.sqlserver;
 
+import static io.debezium.relational.Tables.ColumnNameFilterFactory.createExcludeListFilter;
+import static io.debezium.relational.Tables.ColumnNameFilterFactory.createIncludeListFilter;
+
 import java.time.DateTimeException;
 import java.time.ZoneId;
 import java.util.function.Predicate;
@@ -371,10 +374,10 @@ public class SqlServerConnectorConfig extends HistorizedRelationalDatabaseConnec
         this.snapshotMode = SnapshotMode.parse(config.getString(SNAPSHOT_MODE), SNAPSHOT_MODE.defaultValueAsString());
 
         if (columnIncludeList() != null) {
-            this.columnFilter = getColumnIncludeNameFilter(columnIncludeList());
+            this.columnFilter = createIncludeListFilter(columnIncludeList());
         }
         else {
-            this.columnFilter = getColumnExcludeNameFilter(columnExcludeList());
+            this.columnFilter = createExcludeListFilter(columnExcludeList());
         }
         this.readOnlyDatabaseConnection = READ_ONLY_INTENT.equals(config.getString(APPLICATION_INTENT_KEY));
         if (readOnlyDatabaseConnection) {
@@ -386,32 +389,6 @@ public class SqlServerConnectorConfig extends HistorizedRelationalDatabaseConnec
         }
 
         this.sourceTimestampMode = SourceTimestampMode.fromMode(config.getString(SOURCE_TIMESTAMP_MODE_CONFIG_NAME));
-    }
-
-    private static ColumnNameFilter getColumnExcludeNameFilter(String excludedColumnPatterns) {
-        return new ColumnNameFilter() {
-
-            Predicate<ColumnId> delegate = Predicates.excludes(excludedColumnPatterns, ColumnId::toString);
-
-            @Override
-            public boolean matches(String catalogName, String schemaName, String tableName, String columnName) {
-                // ignore database name as it's not relevant here
-                return delegate.test(new ColumnId(new TableId(null, schemaName, tableName), columnName));
-            }
-        };
-    }
-
-    private static ColumnNameFilter getColumnIncludeNameFilter(String excludedColumnPatterns) {
-        return new ColumnNameFilter() {
-
-            Predicate<ColumnId> delegate = Predicates.includes(excludedColumnPatterns, ColumnId::toString);
-
-            @Override
-            public boolean matches(String catalogName, String schemaName, String tableName, String columnName) {
-                // ignore database name as it's not relevant here
-                return delegate.test(new ColumnId(new TableId(null, schemaName, tableName), columnName));
-            }
-        };
     }
 
     public String getDatabaseName() {

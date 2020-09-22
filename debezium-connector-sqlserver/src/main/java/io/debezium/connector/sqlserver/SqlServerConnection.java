@@ -55,6 +55,10 @@ public class SqlServerConnection extends JdbcConnection {
 
     private static final String STATEMENTS_PLACEHOLDER = "#";
     private static final String GET_MAX_LSN = "SELECT sys.fn_cdc_get_max_lsn()";
+    private static final String GET_MAX_LSN_RESULT = "SELECT"
+        + "(SELECT MAX(start_lsn) FROM cdc.lsn_time_mapping) as max_lsn,"
+        + "(SELECT MAX(start_lsn) FROM cdc.lsn_time_mapping WHERE tran_id <> 0x00) as max_lsn_with_transaction";
+
     private static final String GET_MIN_LSN = "SELECT sys.fn_cdc_get_min_lsn('#')";
     private static final String LOCK_TABLE = "SELECT * FROM [#] WITH (TABLOCKX)";
     private static final String SQL_SERVER_VERSION = "SELECT @@VERSION AS 'SQL Server Version'";
@@ -148,6 +152,12 @@ public class SqlServerConnection extends JdbcConnection {
             LOGGER.trace("Current maximum lsn is {}", ret);
             return ret;
         }, "Maximum LSN query must return exactly one value"));
+    }
+
+    public MaxLsnResult getMaxLsnResult() throws SQLException {
+        return queryAndMap(GET_MAX_LSN_RESULT, singleResultMapper(rs ->
+            new MaxLsnResult(Lsn.valueOf(rs.getBytes(1)), Lsn.valueOf(rs.getBytes(2))),
+            "Maximum LSN must return exactly one value"));
     }
 
     /**

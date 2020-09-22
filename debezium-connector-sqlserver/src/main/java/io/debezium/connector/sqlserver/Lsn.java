@@ -9,6 +9,7 @@ import java.util.Arrays;
 
 import io.debezium.connector.Nullable;
 import io.debezium.util.Strings;
+import org.apache.kafka.common.utils.Bytes;
 
 /**
  * A logical representation of SQL Server LSN (log sequence number) position. When LSN is not available

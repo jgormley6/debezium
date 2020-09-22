@@ -125,17 +125,19 @@ public class SqlServerStreamingChangeEventSource implements StreamingChangeEvent
                 if (connectorConfig.isReadOnlyDatabaseConnection()) {
                     dataConnection.commit();
                 }
-                final Lsn currentMaxLsn = dataConnection.getMaxLsn();
+                final MaxLsnResult currentMaxLsn = dataConnection.getMaxLsnResult();
 
                 // Shouldn't happen if the agent is running, but it is better to guard against such situation
-                if (!currentMaxLsn.isAvailable()) {
+                if (!currentMaxLsn.getMaxLsn().isAvailable()) {
                     LOGGER.warn("No maximum LSN recorded in the database; please ensure that the SQL Server Agent is running");
                     metronome.pause();
                     continue;
                 }
                 // There is no change in the database
-                if (currentMaxLsn.equals(lastProcessedPosition.getCommitLsn()) && shouldIncreaseFromLsn) {
-                    LOGGER.debug("No change in the database");
+                if (currentMaxLsn.getMaxTransactionalLsn().compareTo(lastProcessedPosition.getCommitLsn()) <= 0 && shouldIncreaseFromLsn) {
+                    LOGGER.debug("No change in the database. Max Transaction Lsn: {}, Max Lsn: {}, Last Processed Position: {}.",
+                        currentMaxLsn.getMaxTransactionalLsn(), currentMaxLsn.getMaxLsn(), lastProcessedPosition.getCommitLsn());
+                    lastProcessedPosition = TxLogPosition.valueOf(currentMaxLsn.getMaxLsn());
                     metronome.pause();
                     continue;
                 }
@@ -150,18 +152,18 @@ public class SqlServerStreamingChangeEventSource implements StreamingChangeEvent
                 while (!schemaChangeCheckpoints.isEmpty()) {
                     migrateTable(schemaChangeCheckpoints);
                 }
-                if (!dataConnection.listOfNewChangeTables(fromLsn, currentMaxLsn).isEmpty()) {
+                if (!dataConnection.listOfNewChangeTables(fromLsn, currentMaxLsn.getMaxLsn()).isEmpty()) {
                     final SqlServerChangeTable[] tables = getCdcTablesToQuery();
                     tablesSlot.set(tables);
                     for (SqlServerChangeTable table : tables) {
-                        if (table.getStartLsn().isBetween(fromLsn, currentMaxLsn)) {
+                        if (table.getStartLsn().isBetween(fromLsn, currentMaxLsn.getMaxLsn())) {
                             LOGGER.info("Schema will be changed for {}", table);
                             schemaChangeCheckpoints.add(table);
                         }
                     }
                 }
                 try {
-                    dataConnection.getChangesForTables(tablesSlot.get(), fromLsn, currentMaxLsn, resultSets -> {
+                    dataConnection.getChangesForTables(tablesSlot.get(), fromLsn, currentMaxLsn.getMaxLsn(), resultSets -> {
 
                         long eventSerialNoInInitialTx = 1;
                         final int tableCount = resultSets.length;
@@ -270,7 +272,7 @@ public class SqlServerStreamingChangeEventSource implements StreamingChangeEvent
                             tableWithSmallestLsn.next();
                         }
                     });
-                    lastProcessedPosition = TxLogPosition.valueOf(currentMaxLsn);
+                    lastProcessedPosition = TxLogPosition.valueOf(currentMaxLsn.getMaxLsn());
                     // Terminate the transaction otherwise CDC could not be disabled for tables
                     dataConnection.rollback();
                 }
